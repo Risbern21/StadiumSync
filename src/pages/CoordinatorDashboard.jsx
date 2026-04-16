@@ -1,0 +1,654 @@
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth, db, storage } from "../firebase";
+import {
+  doc, setDoc, collection, addDoc, deleteDoc,
+  onSnapshot, serverTimestamp, getDocs
+} from "firebase/firestore";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+
+const TABS = [
+  { id: "map", label: "Venue Map", icon: "🗺️" },
+  { id: "egress", label: "Exit Guide", icon: "🚪" },
+  { id: "chant", label: "Chants", icon: "📣" },
+  { id: "menu", label: "Food Menus", icon: "🍔" },
+];
+
+export default function CoordinatorDashboard() {
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [activeTab, setActiveTab] = useState("map");
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthChecked(true);
+      if (!u) navigate("/coordinator/login");
+    });
+    return unsub;
+  }, [navigate]);
+
+  if (!authChecked) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100dvh" }}>
+        <span className="spinner" style={{ width: 32, height: 32 }} />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  return (
+    <div className="page page-bg">
+      {/* Header */}
+      <header className="header">
+        <div className="header-logo">
+          <div className="logo-icon">🏟️</div>
+          <span>StadiumSync</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="header-badge badge-coordinator">Coordinator</span>
+          <button
+            id="sign-out-btn"
+            className="btn btn-secondary btn-sm"
+            onClick={() => signOut(auth)}
+            title="Sign out"
+          >
+            Sign Out
+          </button>
+        </div>
+      </header>
+
+      {/* Tab Nav */}
+      <div style={{ padding: "16px 20px 0" }}>
+        <nav className="tab-nav" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              id={`tab-${t.id}`}
+              className={`tab-btn${activeTab === t.id ? " active" : ""}`}
+              onClick={() => setActiveTab(t.id)}
+              role="tab"
+              aria-selected={activeTab === t.id}
+            >
+              <span className="tab-icon">{t.icon}</span>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Tab Panels */}
+      <main className="section">
+        {activeTab === "map" && <MapManager />}
+        {activeTab === "egress" && <EgressManager />}
+        {activeTab === "chant" && <ChantManager />}
+        {activeTab === "menu" && <MenuManager />}
+      </main>
+    </div>
+  );
+}
+
+/* ─── Map Manager ──────────────────────────────────────────── */
+function MapManager() {
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentUrl, setCurrentUrl] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const fileRef = useRef();
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "config", "venueMap"), (snap) => {
+      if (snap.exists()) setCurrentUrl(snap.data().imageUrl);
+    });
+    return unsub;
+  }, []);
+
+  const handleUpload = (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setUploading(true);
+    setSaved(false);
+    const storageRef = ref(storage, `maps/${Date.now()}_${file.name}`);
+    const task = uploadBytesResumable(storageRef, file);
+    task.on(
+      "state_changed",
+      (snap) => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      (err) => { console.error(err); setUploading(false); },
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        await setDoc(doc(db, "config", "venueMap"), { imageUrl: url, updatedAt: serverTimestamp() });
+        setCurrentUrl(url);
+        setUploading(false);
+        setSaved(true);
+      }
+    );
+  };
+
+  const onDrop = (e) => { e.preventDefault(); handleUpload(e.dataTransfer.files[0]); };
+  const onDragOver = (e) => e.preventDefault();
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <h2 className="section-title">🗺️ Venue Map</h2>
+      <p className="section-subtitle">Upload the floor plan or seating map of the venue.</p>
+
+      <div className="panel">
+        <div
+          className="upload-zone"
+          onClick={() => fileRef.current.click()}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+        >
+          <div className="upload-zone-icon">📁</div>
+          <p style={{ fontWeight: 600, marginBottom: 4 }}>Click or drag & drop to upload</p>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>PNG, JPG, WEBP supported</p>
+          <input
+            id="map-file-input"
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => handleUpload(e.target.files[0])}
+          />
+        </div>
+
+        {uploading && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: "0.84rem", color: "var(--text-secondary)" }}>Uploading…</span>
+              <span style={{ fontSize: "0.84rem", color: "var(--accent-blue)" }}>{progress}%</span>
+            </div>
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        )}
+
+        {saved && (
+          <div className="notice notice-success" style={{ marginTop: 16 }}>
+            <span>✅</span><span>Map uploaded and saved to Firestore.</span>
+          </div>
+        )}
+      </div>
+
+      {currentUrl && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontWeight: 600 }}>Current Map</span>
+            <span className="tag tag-green">Live</span>
+          </div>
+          <div className="map-container">
+            <img src={currentUrl} alt="Venue map" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Egress Manager ────────────────────────────────────────── */
+function EgressManager() {
+  const [message, setMessage] = useState("");
+  const [active, setActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "config", "egressMessage"), (snap) => {
+      if (snap.exists()) {
+        setMessage(snap.data().message || "");
+        setActive(snap.data().active || false);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const broadcast = async () => {
+    if (!message.trim()) return;
+    setLoading(true);
+    await setDoc(doc(db, "config", "egressMessage"), {
+      message: message.trim(),
+      active: true,
+      updatedAt: serverTimestamp(),
+    });
+    setActive(true);
+    setSent(true);
+    setLoading(false);
+    setTimeout(() => setSent(false), 3000);
+  };
+
+  const clear = async () => {
+    await setDoc(doc(db, "config", "egressMessage"), {
+      message: "",
+      active: false,
+      updatedAt: serverTimestamp(),
+    });
+    setActive(false);
+    setMessage("");
+  };
+
+  const STAND_TEMPLATES = [
+    "Stand A, please make your way to Gate 1.",
+    "Stand B, please exit via Gate 3 now.",
+    "Stand C, please proceed to the North Exit.",
+    "VIP section, please exit via the East Lounge.",
+    "All stands — event has concluded. Exit safely.",
+  ];
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <h2 className="section-title">🚪 Exit Guide</h2>
+      <p className="section-subtitle">Direct attendees to exit safely. Instructions appear live on attendee screens.</p>
+
+      {/* Preview */}
+      <div className={`egress-banner${active ? " active" : " inactive"}`} style={{ marginBottom: 20 }}>
+        <span className="egress-icon">{active ? "🚨" : "💤"}</span>
+        <div>
+          <div style={{ fontSize: "0.75rem", color: active ? "#fcd34d" : "var(--text-muted)", marginBottom: 4, fontWeight: 600 }}>
+            {active ? "LIVE — Attendees can see this" : "No active direction"}
+          </div>
+          <div style={{ fontWeight: 700 }}>{message || "No message set"}</div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label">Quick Templates</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {STAND_TEMPLATES.map((t, i) => (
+              <button
+                key={i}
+                className="btn btn-secondary btn-sm"
+                onClick={() => setMessage(t)}
+              >
+                {t.split(",")[0]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label" htmlFor="egress-msg">Custom Message</label>
+          <textarea
+            id="egress-msg"
+            className="form-textarea"
+            rows={3}
+            placeholder="e.g. Stand B, please leave first via Gate 2…"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            id="egress-broadcast-btn"
+            className="btn btn-amber"
+            onClick={broadcast}
+            disabled={loading || !message.trim()}
+            style={{ flex: 1 }}
+          >
+            {loading ? <span className="spinner" /> : "📡 Broadcast"}
+          </button>
+          <button
+            id="egress-clear-btn"
+            className="btn btn-secondary"
+            onClick={clear}
+          >
+            Clear
+          </button>
+        </div>
+
+        {sent && (
+          <div className="notice notice-success" style={{ marginTop: 12 }}>
+            <span>✅</span><span>Message broadcast to all attendees!</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Chant Manager ─────────────────────────────────────────── */
+function ChantManager() {
+  const [chant, setChant] = useState("");
+  const [active, setActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "config", "activeChant"), (snap) => {
+      if (snap.exists()) {
+        setChant(snap.data().text || "");
+        setActive(snap.data().active || false);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const broadcast = async () => {
+    if (!chant.trim()) return;
+    setLoading(true);
+    await setDoc(doc(db, "config", "activeChant"), {
+      text: chant.trim(),
+      active: true,
+      updatedAt: serverTimestamp(),
+    });
+    setActive(true);
+    setSent(true);
+    setLoading(false);
+    setTimeout(() => setSent(false), 3000);
+  };
+
+  const stop = async () => {
+    await setDoc(doc(db, "config", "activeChant"), {
+      text: "",
+      active: false,
+      updatedAt: serverTimestamp(),
+    });
+    setActive(false);
+    setChant("");
+  };
+
+  const CHANT_PRESETS = [
+    "Let's go! Let's go! Let's GO! 🔥",
+    "OLE OLE OLE OLE! ⚽",
+    "WE ARE THE CHAMPIONS! 🏆",
+    "DEF-ENSE! DEF-ENSE! 🛡️",
+    "HERE WE GO! HERE WE GO! 🎉",
+  ];
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <h2 className="section-title">📣 Chant Broadcaster</h2>
+      <p className="section-subtitle">Send crowd chants to all attendee screens in real time.</p>
+
+      {/* Live preview */}
+      <div className="chant-display" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12 }}>
+          <span className={`status-dot ${active ? "live" : "inactive"}`} />
+          <span style={{ fontSize: "0.78rem", color: active ? "#6ee7b7" : "var(--text-muted)", fontWeight: 600 }}>
+            {active ? "LIVE ON ATTENDEE SCREENS" : "PREVIEW"}
+          </span>
+        </div>
+        <div className="chant-text">{chant || "Your chant appears here…"}</div>
+      </div>
+
+      <div className="panel">
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label">Preset Chants</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {CHANT_PRESETS.map((c, i) => (
+              <button
+                key={i}
+                className="btn btn-secondary"
+                style={{ justifyContent: "flex-start", textAlign: "left" }}
+                onClick={() => setChant(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label" htmlFor="chant-input">Custom Chant</label>
+          <textarea
+            id="chant-input"
+            className="form-textarea"
+            rows={3}
+            placeholder="Type your chant here…"
+            value={chant}
+            onChange={(e) => setChant(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            id="chant-broadcast-btn"
+            className="btn btn-primary"
+            onClick={broadcast}
+            disabled={loading || !chant.trim()}
+            style={{ flex: 1 }}
+          >
+            {loading ? <span className="spinner" /> : "📣 Broadcast Chant"}
+          </button>
+          <button
+            id="chant-stop-btn"
+            className="btn btn-secondary"
+            onClick={stop}
+          >
+            Stop
+          </button>
+        </div>
+
+        {sent && (
+          <div className="notice notice-success" style={{ marginTop: 12 }}>
+            <span>✅</span><span>Chant is now live on attendee screens!</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Menu Manager ──────────────────────────────────────────── */
+function MenuManager() {
+  const [stalls, setStalls] = useState([]);
+  const [newStallName, setNewStallName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [expandedStall, setExpandedStall] = useState(null);
+  const [itemName, setItemName] = useState("");
+  const [itemPrice, setItemPrice] = useState("");
+  const [uploading, setUploading] = useState({});
+  const fileRef = useRef({});
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "menus"), (snap) => {
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+      setStalls(data);
+    });
+    return unsub;
+  }, []);
+
+  const addStall = async () => {
+    if (!newStallName.trim()) return;
+    setLoading(true);
+    await addDoc(collection(db, "menus"), {
+      name: newStallName.trim(),
+      items: [],
+      imageUrl: null,
+      createdAt: serverTimestamp(),
+    });
+    setNewStallName("");
+    setLoading(false);
+  };
+
+  const deleteStall = async (id) => {
+    await deleteDoc(doc(db, "menus", id));
+    if (expandedStall === id) setExpandedStall(null);
+  };
+
+  const addItem = async (stallId, items) => {
+    if (!itemName.trim() || !itemPrice.trim()) return;
+    const updated = [...items, { name: itemName.trim(), price: itemPrice.trim() }];
+    await setDoc(doc(db, "menus", stallId), { items: updated }, { merge: true });
+    setItemName("");
+    setItemPrice("");
+  };
+
+  const removeItem = async (stallId, items, idx) => {
+    const updated = items.filter((_, i) => i !== idx);
+    await setDoc(doc(db, "menus", stallId), { items: updated }, { merge: true });
+  };
+
+  const uploadImage = (stallId, file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setUploading((p) => ({ ...p, [stallId]: 0 }));
+    const storageRef = ref(storage, `menus/${stallId}_${Date.now()}_${file.name}`);
+    const task = uploadBytesResumable(storageRef, file);
+    task.on(
+      "state_changed",
+      (snap) => setUploading((p) => ({ ...p, [stallId]: Math.round((snap.bytesTransferred / snap.totalBytes) * 100) })),
+      (err) => console.error(err),
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        await setDoc(doc(db, "menus", stallId), { imageUrl: url }, { merge: true });
+        setUploading((p) => { const n = { ...p }; delete n[stallId]; return n; });
+      }
+    );
+  };
+
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      <h2 className="section-title">🍔 Food Menus</h2>
+      <p className="section-subtitle">Add food stalls with their menus. Attendees can browse them in real time.</p>
+
+      {/* Add Stall */}
+      <div className="panel" style={{ marginBottom: 20 }}>
+        <div className="form-group" style={{ marginBottom: 12 }}>
+          <label className="form-label" htmlFor="stall-name">New Food Stall</label>
+          <div className="inline-form">
+            <input
+              id="stall-name"
+              type="text"
+              className="form-input"
+              placeholder="e.g. Burger Zone, Pizza Corner…"
+              value={newStallName}
+              onChange={(e) => setNewStallName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addStall()}
+            />
+            <button
+              id="add-stall-btn"
+              className="btn btn-primary"
+              onClick={addStall}
+              disabled={loading || !newStallName.trim()}
+            >
+              {loading ? <span className="spinner" /> : "+ Add Stall"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stall List */}
+      {stalls.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">🍽️</div>
+          <div className="empty-state-text">No food stalls yet. Add one above.</div>
+        </div>
+      ) : (
+        stalls.map((stall) => (
+          <div key={stall.id} className="panel" style={{ marginBottom: 14 }}>
+            {/* Stall Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: expandedStall === stall.id ? 16 : 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "1.4rem" }}>🏪</span>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{stall.name}</div>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{stall.items?.length || 0} items</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setExpandedStall(expandedStall === stall.id ? null : stall.id)}
+                >
+                  {expandedStall === stall.id ? "Collapse ▲" : "Manage ▼"}
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={() => deleteStall(stall.id)}
+                >
+                  🗑
+                </button>
+              </div>
+            </div>
+
+            {/* Expanded */}
+            {expandedStall === stall.id && (
+              <div>
+                {/* Image upload */}
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="form-label">Stall Image</label>
+                  {stall.imageUrl && (
+                    <img src={stall.imageUrl} alt={stall.name} className="menu-image-preview" style={{ marginBottom: 8 }} />
+                  )}
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => fileRef.current[stall.id]?.click()}
+                  >
+                    📷 {stall.imageUrl ? "Change Image" : "Upload Image"}
+                  </button>
+                  <input
+                    ref={(el) => (fileRef.current[stall.id] = el)}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={(e) => uploadImage(stall.id, e.target.files[0])}
+                  />
+                  {uploading[stall.id] !== undefined && (
+                    <div className="progress-bar" style={{ marginTop: 8 }}>
+                      <div className="progress-fill" style={{ width: `${uploading[stall.id]}%` }} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="divider" />
+
+                {/* Items */}
+                <div style={{ marginBottom: 12 }}>
+                  <div className="form-label" style={{ marginBottom: 10 }}>Menu Items</div>
+                  {(stall.items || []).map((item, idx) => (
+                    <div key={idx} className="list-row">
+                      <div className="list-row-info">
+                        <div className="list-row-title">{item.name}</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ color: "var(--accent-green)", fontWeight: 700 }}>{item.price}</span>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={() => removeItem(stall.id, stall.items, idx)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add Item */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Item name"
+                    value={itemName}
+                    onChange={(e) => setItemName(e.target.value)}
+                    style={{ flex: "2 1 140px" }}
+                  />
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Price"
+                    value={itemPrice}
+                    onChange={(e) => setItemPrice(e.target.value)}
+                    style={{ flex: "1 1 90px" }}
+                  />
+                  <button
+                    className="btn btn-success btn-sm"
+                    onClick={() => addItem(stall.id, stall.items || [])}
+                    disabled={!itemName.trim() || !itemPrice.trim()}
+                  >
+                    + Add
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
