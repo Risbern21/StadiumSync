@@ -14,6 +14,7 @@
 
 | Feature | Description | Google Service |
 |---|---|---|
+| 🎫 **Event Code Gate** | Coordinator generates a unique code; attendees must enter it to access event info | Firebase Firestore |
 | 🗺️ **Venue Map** | Coordinators upload venue/seating maps; attendees view them live | Firebase Storage + Firestore |
 | 🚪 **Exit Guide** | Coordinators broadcast stand-by-stand exit instructions in real time | Firebase Firestore |
 | 📣 **Chant Broadcaster** | Coordinators send crowd chants; attendees see them live and can join | Firebase Firestore |
@@ -40,11 +41,14 @@ StadiumSync
 ├── / (Landing)              — Role selection (Coordinator / Attendee)
 ├── /coordinator/login       — Firebase Auth sign-in
 ├── /coordinator             — Protected dashboard
+│   ├── Event Code           — Generate/activate unique code → Firestore config/eventCode
 │   ├── Map Manager          — Upload map → Storage → URL in Firestore config/venueMap
 │   ├── Exit Guide           — Write to Firestore config/egressMessage → live on attendee screens
 │   ├── Chant Broadcaster    — Write to Firestore config/activeChant → live on attendee screens
 │   └── Menu Manager         — CRUD on Firestore menus/ collection + image uploads
-└── /attendee                — Public view, all data from Firestore onSnapshot
+├── /attendee (Gate)         — Attendee enters event code; validated against Firestore
+│                              Valid code stored in sessionStorage
+└── /attendee/view           — Gated view (redirects to gate if no session code)
     ├── Venue Map             — Reads config/venueMap
     ├── Exit Guide            — Reads config/egressMessage (pulsing alert when active)
     ├── Chants                — Reads config/activeChant (join button)
@@ -56,6 +60,7 @@ StadiumSync
 
 ```
 config/
+  eventCode      → { code, eventName, active, updatedAt }
   venueMap       → { imageUrl, updatedAt }
   egressMessage  → { message, active, updatedAt }
   activeChant    → { text, active, updatedAt }
