@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import {
   doc, collection, onSnapshot,
@@ -16,6 +16,15 @@ const TABS = [
 
 export default function AttendeeView() {
   const [activeTab, setActiveTab] = useState("map");
+  const navigate = useNavigate();
+  const eventName = sessionStorage.getItem("ss_event_name") || "";
+  const eventCode = sessionStorage.getItem("ss_event_code") || "";
+
+  const leaveEvent = () => {
+    sessionStorage.removeItem("ss_event_code");
+    sessionStorage.removeItem("ss_event_name");
+    navigate("/attendee");
+  };
 
   return (
     <div className="page page-bg">
@@ -23,11 +32,21 @@ export default function AttendeeView() {
       <header className="header">
         <div className="header-logo">
           <div className="logo-icon">🏟️</div>
-          <span>StadiumSync</span>
+          <div>
+            <div style={{ lineHeight: 1.1 }}>StadiumSync</div>
+            {eventName && (
+              <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontWeight: 400, fontFamily: "'Inter', sans-serif" }}>
+                {eventName}
+              </div>
+            )}
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="tag tag-blue" style={{ fontSize: "0.68rem" }}>{eventCode}</span>
           <span className="header-badge badge-attendee">Attendee</span>
-          <Link to="/" className="btn btn-secondary btn-sm">Home</Link>
+          <button id="leave-event-btn" className="btn btn-secondary btn-sm" onClick={leaveEvent}>
+            Leave
+          </button>
         </div>
       </header>
 

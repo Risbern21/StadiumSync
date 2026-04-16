@@ -13,6 +13,7 @@ const TABS = [
   { id: "egress", label: "Exit Guide", icon: "🚪" },
   { id: "chant", label: "Chants", icon: "📣" },
   { id: "menu", label: "Food Menus", icon: "🍔" },
+  { id: "code", label: "Event Code", icon: "🎫" },
 ];
 
 export default function CoordinatorDashboard() {
@@ -86,6 +87,7 @@ export default function CoordinatorDashboard() {
         {activeTab === "egress" && <EgressManager />}
         {activeTab === "chant" && <ChantManager />}
         {activeTab === "menu" && <MenuManager />}
+        {activeTab === "code" && <EventCodeManager />}
       </main>
     </div>
   );
@@ -649,6 +651,198 @@ function MenuManager() {
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+/* ─── Event Code Manager ────────────────────────────────────── */
+function EventCodeManager() {
+  const [code, setCode] = useState("");
+  const [eventName, setEventName] = useState("");
+  const [active, setActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "config", "eventCode"), (snap) => {
+      if (snap.exists()) {
+        setCode(snap.data().code || "");
+        setEventName(snap.data().eventName || "");
+        setActive(snap.data().active ?? false);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const generateCode = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let result = "";
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setCode(result);
+    setSaved(false);
+  };
+
+  const saveCode = async () => {
+    if (!code.trim()) return;
+    setLoading(true);
+    await setDoc(doc(db, "config", "eventCode"), {
+      code: code.trim().toUpperCase(),
+      eventName: eventName.trim(),
+      active: true,
+      updatedAt: serverTimestamp(),
+    });
+    setActive(true);
+    setSaved(true);
+    setLoading(false);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const toggleActive = async () => {
+    await setDoc(doc(db, "config", "eventCode"), {
+      code,
+      eventName,
+      active: !active,
+      updatedAt: serverTimestamp(),
+    });
+    setActive((p) => !p);
+  };
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div style={{ maxWidth: 540, margin: "0 auto" }}>
+      <h2 className="section-title">🎫 Event Code</h2>
+      <p className="section-subtitle">
+        Generate a unique code and share it with attendees. Only those with the code can join the event.
+      </p>
+
+      {/* Live Code Card */}
+      {code && (
+        <div style={{
+          background: "linear-gradient(135deg, rgba(59,130,246,0.12), rgba(139,92,246,0.12))",
+          border: "1px solid rgba(99,102,241,0.3)",
+          borderRadius: "var(--radius-xl)",
+          padding: "28px 24px",
+          textAlign: "center",
+          marginBottom: 20,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
+            <span className={`status-dot ${active ? "live" : "inactive"}`} />
+            <span style={{
+              fontSize: "0.74rem", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: active ? "#6ee7b7" : "var(--text-muted)",
+            }}>
+              {active ? "Active — Attendees can join" : "Inactive — Access disabled"}
+            </span>
+          </div>
+
+          <div style={{
+            fontFamily: "'Outfit', monospace",
+            fontSize: "clamp(2rem, 10vw, 3rem)",
+            fontWeight: 900,
+            letterSpacing: "0.3em",
+            background: "linear-gradient(135deg, #fff, #a5b4fc)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            marginBottom: 12,
+          }}>
+            {code}
+          </div>
+
+          {eventName && (
+            <div style={{ fontSize: "0.84rem", color: "var(--text-secondary)", marginBottom: 16 }}>
+              📍 {eventName}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <button id="copy-code-btn" className="btn btn-secondary btn-sm" onClick={copyCode}>
+              {copied ? "✅ Copied!" : "📋 Copy Code"}
+            </button>
+            <button
+              id="toggle-code-btn"
+              className={`btn btn-sm ${active ? "btn-danger" : "btn-success"}`}
+              onClick={toggleActive}
+            >
+              {active ? "🔒 Deactivate" : "🔓 Activate"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Generator Form */}
+      <div className="panel">
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label" htmlFor="event-name-input">
+            Event Name <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(shown to attendees)</span>
+          </label>
+          <input
+            id="event-name-input"
+            type="text"
+            className="form-input"
+            placeholder="e.g. Champions League Final 2025"
+            value={eventName}
+            onChange={(e) => setEventName(e.target.value)}
+          />
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label" htmlFor="code-manual-input">Code</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              id="code-manual-input"
+              type="text"
+              className="form-input"
+              placeholder="Auto-generated or type custom"
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value.toUpperCase().slice(0, 8).replace(/[^A-Z0-9]/g, ""));
+                setSaved(false);
+              }}
+              style={{ fontFamily: "'Outfit', monospace", fontSize: "1.2rem", fontWeight: 700, letterSpacing: "0.2em" }}
+              maxLength={8}
+            />
+            <button id="generate-code-btn" className="btn btn-secondary" onClick={generateCode} style={{ flexShrink: 0 }}>
+              🎲 Generate
+            </button>
+          </div>
+        </div>
+
+        <button
+          id="save-code-btn"
+          className="btn btn-primary btn-full"
+          onClick={saveCode}
+          disabled={loading || !code.trim()}
+        >
+          {loading ? <span className="spinner" /> : "✅ Save & Activate Code"}
+        </button>
+
+        {saved && (
+          <div className="notice notice-success" style={{ marginTop: 12 }}>
+            <span>🎫</span>
+            <span>Code <strong>{code}</strong> is now active. Share it with attendees!</span>
+          </div>
+        )}
+
+        <div className="notice notice-info" style={{ marginTop: 16 }}>
+          <span>ℹ️</span>
+          <div>
+            <strong>How it works:</strong> Attendees go to the Attendee portal and enter this code.
+            Only those with the correct code see event info. Use <em>Deactivate</em> to block
+            access when the event ends.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
