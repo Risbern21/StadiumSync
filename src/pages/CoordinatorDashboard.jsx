@@ -14,6 +14,7 @@ const TABS = [
   { id: "chant", label: "Chants", icon: "📣" },
   { id: "menu", label: "Food Menus", icon: "🍔" },
   { id: "code", label: "Event Code", icon: "🎫" },
+  { id: "feedback", label: "Feedback", icon: "📝" },
 ];
 
 export default function CoordinatorDashboard() {
@@ -88,6 +89,7 @@ export default function CoordinatorDashboard() {
         {activeTab === "chant" && <ChantManager />}
         {activeTab === "menu" && <MenuManager />}
         {activeTab === "code" && <EventCodeManager />}
+        {activeTab === "feedback" && <FeedbackManager />}
       </main>
     </div>
   );
@@ -210,15 +212,21 @@ function EgressManager() {
   const broadcast = async () => {
     if (!message.trim()) return;
     setLoading(true);
-    await setDoc(doc(db, "config", "egressMessage"), {
-      message: message.trim(),
-      active: true,
-      updatedAt: serverTimestamp(),
-    });
-    setActive(true);
-    setSent(true);
-    setLoading(false);
-    setTimeout(() => setSent(false), 3000);
+    try {
+      await setDoc(doc(db, "config", "egressMessage"), {
+        message: message.trim(),
+        active: true,
+        updatedAt: serverTimestamp(),
+      });
+      setActive(true);
+      setSent(true);
+      setTimeout(() => setSent(false), 3000);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to broadcast message: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const clear = async () => {
@@ -332,15 +340,21 @@ function ChantManager() {
   const broadcast = async () => {
     if (!chant.trim()) return;
     setLoading(true);
-    await setDoc(doc(db, "config", "activeChant"), {
-      text: chant.trim(),
-      active: true,
-      updatedAt: serverTimestamp(),
-    });
-    setActive(true);
-    setSent(true);
-    setLoading(false);
-    setTimeout(() => setSent(false), 3000);
+    try {
+      await setDoc(doc(db, "config", "activeChant"), {
+        text: chant.trim(),
+        active: true,
+        updatedAt: serverTimestamp(),
+      });
+      setActive(true);
+      setSent(true);
+      setTimeout(() => setSent(false), 3000);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to broadcast chant: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const stop = async () => {
@@ -458,14 +472,20 @@ function MenuManager() {
   const addStall = async () => {
     if (!newStallName.trim()) return;
     setLoading(true);
-    await addDoc(collection(db, "menus"), {
-      name: newStallName.trim(),
-      items: [],
-      imageUrl: null,
-      createdAt: serverTimestamp(),
-    });
-    setNewStallName("");
-    setLoading(false);
+    try {
+      await addDoc(collection(db, "menus"), {
+        name: newStallName.trim(),
+        items: [],
+        imageUrl: null,
+        createdAt: serverTimestamp(),
+      });
+      setNewStallName("");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to add stall: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const deleteStall = async (id) => {
@@ -688,16 +708,22 @@ function EventCodeManager() {
   const saveCode = async () => {
     if (!code.trim()) return;
     setLoading(true);
-    await setDoc(doc(db, "config", "eventCode"), {
-      code: code.trim().toUpperCase(),
-      eventName: eventName.trim(),
-      active: true,
-      updatedAt: serverTimestamp(),
-    });
-    setActive(true);
-    setSaved(true);
-    setLoading(false);
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      await setDoc(doc(db, "config", "eventCode"), {
+        code: code.trim().toUpperCase(),
+        eventName: eventName.trim(),
+        active: true,
+        updatedAt: serverTimestamp(),
+      });
+      setActive(true);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save code: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleActive = async () => {
@@ -843,6 +869,101 @@ function EventCodeManager() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Feedback Manager ──────────────────────────────────────── */
+function FeedbackManager() {
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [starFilter, setStarFilter] = useState("all");
+
+  useEffect(() => {
+    // Listen to all feedbacks
+    const unsub = onSnapshot(collection(db, "feedback"), (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort by newest first
+      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setFeedbacks(data);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  const filteredFeedbacks = feedbacks.filter(f => {
+    if (starFilter === "all") return true;
+    return f.rating === parseInt(starFilter, 10);
+  });
+
+  const getStarString = (rating) => {
+    let s = "";
+    for(let i=1; i<=5; i++) {
+       s += i <= rating ? "⭐" : "☆";
+    }
+    return s;
+  };
+
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 }}>
+        <div>
+          <h2 className="section-title" style={{ marginBottom: 4 }}>📝 Event Feedback</h2>
+          <p className="section-subtitle" style={{ margin: 0 }}>Review what attendees are saying about the event.</p>
+        </div>
+        
+        <div style={{ minWidth: 140 }}>
+          <label className="form-label" style={{ fontSize: "0.8rem", marginBottom: 4 }}>Filter by Stars</label>
+          <select className="form-select" value={starFilter} onChange={(e) => setStarFilter(e.target.value)}>
+            <option value="all">All Ratings</option>
+            <option value="5">5 Stars</option>
+            <option value="4">4 Stars</option>
+            <option value="3">3 Stars</option>
+            <option value="2">2 Stars</option>
+            <option value="1">1 Star</option>
+          </select>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="empty-state">
+          <span className="spinner" style={{ width: 28, height: 28, margin: "0 auto 12px" }} />
+        </div>
+      ) : filteredFeedbacks.length === 0 ? (
+        <div className="panel">
+          <div className="empty-state">
+            <div className="empty-state-icon">📭</div>
+            <div className="empty-state-text">No feedback matches your filter.</div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {filteredFeedbacks.map(f => (
+            <div key={f.id} className="panel" style={{ padding: "16px 20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: "1.2rem", letterSpacing: "2px", marginBottom: 4 }}>
+                    {getStarString(f.rating)}
+                  </div>
+                  <span className="tag tag-blue" style={{ textTransform: "capitalize" }}>{f.category}</span>
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  {f.createdAt ? new Date(f.createdAt.seconds * 1000).toLocaleString() : "Just now"}
+                </div>
+              </div>
+              {f.comment ? (
+                <div style={{ fontSize: "0.95rem", lineHeight: 1.5, color: "var(--text-main)" }}>
+                  "{f.comment}"
+                </div>
+              ) : (
+                <div style={{ fontSize: "0.95rem", fontStyle: "italic", color: "var(--text-muted)" }}>
+                  No comment provided.
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
