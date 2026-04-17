@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import {
   doc, collection, onSnapshot,
-  addDoc, serverTimestamp
+  addDoc, serverTimestamp, query, where
 } from "firebase/firestore";
 
 const TABS = [
@@ -19,10 +19,12 @@ export default function AttendeeView() {
   const navigate = useNavigate();
   const eventName = sessionStorage.getItem("ss_event_name") || "";
   const eventCode = sessionStorage.getItem("ss_event_code") || "";
+  const coordinatorId = sessionStorage.getItem("ss_coordinator_id") || "";
 
   const leaveEvent = () => {
     sessionStorage.removeItem("ss_event_code");
     sessionStorage.removeItem("ss_event_name");
+    sessionStorage.removeItem("ss_coordinator_id");
     navigate("/attendee");
   };
 
@@ -71,28 +73,42 @@ export default function AttendeeView() {
 
       {/* Tab Panels */}
       <main className="section">
-        {activeTab === "map"      && <MapSection />}
-        {activeTab === "egress"   && <EgressSection />}
-        {activeTab === "chants"   && <ChantsSection />}
-        {activeTab === "food"     && <FoodSection />}
-        {activeTab === "feedback" && <FeedbackSection />}
+        {activeTab === "map"      && <MapSection coordinatorId={coordinatorId} />}
+        {activeTab === "egress"   && <EgressSection coordinatorId={coordinatorId} />}
+        {activeTab === "chants"   && <ChantsSection coordinatorId={coordinatorId} />}
+        {activeTab === "food"     && <FoodSection coordinatorId={coordinatorId} />}
+        {activeTab === "feedback" && <FeedbackSection coordinatorId={coordinatorId} />}
       </main>
     </div>
   );
 }
 
 /* ─── Map Section ────────────────────────────────────────────── */
-function MapSection() {
+function MapSection({ coordinatorId }) {
   const [mapUrl, setMapUrl] = useState(null);
   const [loading, setLoading] = useState(true);
+  const currentSessionEventCode = sessionStorage.getItem("ss_event_code");
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "venueMap"), (snap) => {
-      setMapUrl(snap.exists() ? snap.data().imageUrl : null);
+    if (!coordinatorId) {
+      setLoading(false);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, "config", `venueMap_${coordinatorId}`), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (!data.eventCode || data.eventCode === currentSessionEventCode) {
+          setMapUrl(data.imageUrl);
+        } else {
+          setMapUrl(null);
+        }
+      } else {
+        setMapUrl(null);
+      }
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [currentSessionEventCode]);
 
   return (
     <div style={{ maxWidth: 700, margin: "0 auto" }}>
@@ -121,12 +137,16 @@ function MapSection() {
 }
 
 /* ─── Egress Section ─────────────────────────────────────────── */
-function EgressSection() {
+function EgressSection({ coordinatorId }) {
   const [data, setData] = useState({ message: "", active: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "egressMessage"), (snap) => {
+    if (!coordinatorId) {
+      setLoading(false);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, "config", `egressMessage_${coordinatorId}`), (snap) => {
       setData(snap.exists() ? snap.data() : { message: "", active: false });
       setLoading(false);
     });
@@ -198,13 +218,17 @@ function EgressSection() {
 }
 
 /* ─── Chants Section ─────────────────────────────────────────── */
-function ChantsSection() {
+function ChantsSection({ coordinatorId }) {
   const [data, setData] = useState({ text: "", active: false });
   const [loading, setLoading] = useState(true);
   const [joined, setJoined] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "activeChant"), (snap) => {
+    if (!coordinatorId) {
+      setLoading(false);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, "config", `activeChant_${coordinatorId}`), (snap) => {
       const d = snap.exists() ? snap.data() : { text: "", active: false };
       setData(d);
       setLoading(false);
@@ -270,13 +294,18 @@ function ChantsSection() {
 }
 
 /* ─── Food Section ───────────────────────────────────────────── */
-function FoodSection() {
+function FoodSection({ coordinatorId }) {
   const [stalls, setStalls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "menus"), (snap) => {
+    if (!coordinatorId) {
+      setLoading(false);
+      return;
+    }
+    const qMenu = query(collection(db, "menus"), where("coordinatorId", "==", coordinatorId));
+    const unsub = onSnapshot(qMenu, (snap) => {
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
       setStalls(data);
@@ -359,7 +388,7 @@ function FoodSection() {
 }
 
 /* ─── Feedback Section ───────────────────────────────────────── */
-function FeedbackSection() {
+function FeedbackSection({ coordinatorId }) {
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
   const [comment, setComment] = useState("");
@@ -375,6 +404,7 @@ function FeedbackSection() {
       rating,
       comment: comment.trim(),
       category,
+      coordinatorId,
       createdAt: serverTimestamp(),
     });
     setLoading(false);

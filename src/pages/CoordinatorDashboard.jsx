@@ -4,9 +4,11 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db, storage } from "../firebase";
 import {
   doc, setDoc, collection, addDoc, deleteDoc,
-  onSnapshot, serverTimestamp, getDocs
+  onSnapshot, serverTimestamp, getDocs,
+  query, where
 } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const TABS = [
   { id: "map", label: "Venue Map", icon: "🗺️" },
@@ -84,33 +86,53 @@ export default function CoordinatorDashboard() {
 
       {/* Tab Panels */}
       <main className="section">
-        {activeTab === "map" && <MapManager />}
-        {activeTab === "egress" && <EgressManager />}
-        {activeTab === "chant" && <ChantManager />}
-        {activeTab === "menu" && <MenuManager />}
-        {activeTab === "code" && <EventCodeManager />}
-        {activeTab === "feedback" && <FeedbackManager />}
+        {activeTab === "map" && <MapManager coordinatorId={user.uid} />}
+        {activeTab === "egress" && <EgressManager coordinatorId={user.uid} />}
+        {activeTab === "chant" && <ChantManager coordinatorId={user.uid} />}
+        {activeTab === "menu" && <MenuManager coordinatorId={user.uid} />}
+        {activeTab === "code" && <EventCodeManager coordinatorId={user.uid} />}
+        {activeTab === "feedback" && <FeedbackManager coordinatorId={user.uid} />}
       </main>
     </div>
   );
 }
 
 /* ─── Map Manager ──────────────────────────────────────────── */
-function MapManager() {
+function MapManager({ coordinatorId }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(null);
+  const [mapEventCode, setMapEventCode] = useState(null);
+  const [activeEventCode, setActiveEventCode] = useState(null);
   const [saved, setSaved] = useState(false);
   const fileRef = useRef();
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "venueMap"), (snap) => {
-      if (snap.exists()) setCurrentUrl(snap.data().imageUrl);
+    const unsubEvent = onSnapshot(doc(db, "config", `eventCode_${coordinatorId}`), (snap) => {
+      if (snap.exists() && snap.data().active) {
+        setActiveEventCode(snap.data().code);
+      } else {
+        setActiveEventCode(null);
+      }
     });
-    return unsub;
-  }, []);
+
+    const unsubMap = onSnapshot(doc(db, "config", `venueMap_${coordinatorId}`), (snap) => {
+      if (snap.exists()) {
+        setCurrentUrl(snap.data().imageUrl);
+        setMapEventCode(snap.data().eventCode || null);
+      } else {
+        setCurrentUrl(null);
+        setMapEventCode(null);
+      }
+    });
+    return () => { unsubEvent(); unsubMap(); };
+  }, [coordinatorId]);
 
   const handleUpload = (file) => {
+    if (!activeEventCode) {
+      alert("Please generate and activate an Event Code first.");
+      return;
+    }
     if (!file || !file.type.startsWith("image/")) return;
     setUploading(true);
     setSaved(false);
@@ -122,16 +144,37 @@ function MapManager() {
       (err) => { console.error(err); setUploading(false); },
       async () => {
         const url = await getDownloadURL(task.snapshot.ref);
-        await setDoc(doc(db, "config", "venueMap"), { imageUrl: url, updatedAt: serverTimestamp() });
+        await setDoc(doc(db, "config", `venueMap_${coordinatorId}`), { 
+          imageUrl: url, 
+          updatedAt: serverTimestamp(),
+          eventCode: activeEventCode 
+        });
         setCurrentUrl(url);
+        setMapEventCode(activeEventCode);
         setUploading(false);
         setSaved(true);
       }
     );
   };
 
-  const onDrop = (e) => { e.preventDefault(); handleUpload(e.dataTransfer.files[0]); };
+  const onDrop = (e) => {
+    e.preventDefault();
+    if (activeEventCode) handleUpload(e.dataTransfer.files[0]);
+  };
   const onDragOver = (e) => e.preventDefault();
+
+  const deleteMap = async () => {
+    if (!window.confirm("Are you sure you want to delete this map?")) return;
+    try {
+      await deleteDoc(doc(db, "config", `venueMap_${coordinatorId}`));
+      setCurrentUrl(null);
+      setMapEventCode(null);
+      setSaved(false);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete map: " + err.message);
+    }
+  };
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
@@ -140,10 +183,11 @@ function MapManager() {
 
       <div className="panel">
         <div
-          className="upload-zone"
-          onClick={() => fileRef.current.click()}
+          className={`upload-zone${!activeEventCode ? " disabled" : ""}`}
+          onClick={() => activeEventCode && fileRef.current.click()}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          style={!activeEventCode ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
         >
           <div className="upload-zone-icon">📁</div>
           <p style={{ fontWeight: 600, marginBottom: 4 }}>Click or drag & drop to upload</p>
@@ -181,7 +225,22 @@ function MapManager() {
         <div className="panel" style={{ marginTop: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontWeight: 600 }}>Current Map</span>
-            <span className="tag tag-green">Live</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {mapEventCode === activeEventCode && activeEventCode ? (
+                <span className="tag tag-green">Live for {mapEventCode}</span>
+              ) : mapEventCode ? (
+                <span className="tag tag-blue">Hidden (Associated with {mapEventCode})</span>
+              ) : (
+                <span className="tag tag-green">Live (Global)</span>
+              )}
+              <button 
+                className="btn btn-danger btn-sm" 
+                onClick={deleteMap}
+                title="Delete Map"
+              >
+                🗑
+              </button>
+            </div>
           </div>
           <div className="map-container">
             <img src={currentUrl} alt="Venue map" />
@@ -193,27 +252,27 @@ function MapManager() {
 }
 
 /* ─── Egress Manager ────────────────────────────────────────── */
-function EgressManager() {
+function EgressManager({ coordinatorId }) {
   const [message, setMessage] = useState("");
   const [active, setActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "egressMessage"), (snap) => {
+    const unsub = onSnapshot(doc(db, "config", `egressMessage_${coordinatorId}`), (snap) => {
       if (snap.exists()) {
         setMessage(snap.data().message || "");
         setActive(snap.data().active || false);
       }
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   const broadcast = async () => {
     if (!message.trim()) return;
     setLoading(true);
     try {
-      await setDoc(doc(db, "config", "egressMessage"), {
+      await setDoc(doc(db, "config", `egressMessage_${coordinatorId}`), {
         message: message.trim(),
         active: true,
         updatedAt: serverTimestamp(),
@@ -230,7 +289,7 @@ function EgressManager() {
   };
 
   const clear = async () => {
-    await setDoc(doc(db, "config", "egressMessage"), {
+    await setDoc(doc(db, "config", `egressMessage_${coordinatorId}`), {
       message: "",
       active: false,
       updatedAt: serverTimestamp(),
@@ -321,27 +380,27 @@ function EgressManager() {
 }
 
 /* ─── Chant Manager ─────────────────────────────────────────── */
-function ChantManager() {
+function ChantManager({ coordinatorId }) {
   const [chant, setChant] = useState("");
   const [active, setActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "activeChant"), (snap) => {
+    const unsub = onSnapshot(doc(db, "config", `activeChant_${coordinatorId}`), (snap) => {
       if (snap.exists()) {
         setChant(snap.data().text || "");
         setActive(snap.data().active || false);
       }
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   const broadcast = async () => {
     if (!chant.trim()) return;
     setLoading(true);
     try {
-      await setDoc(doc(db, "config", "activeChant"), {
+      await setDoc(doc(db, "config", `activeChant_${coordinatorId}`), {
         text: chant.trim(),
         active: true,
         updatedAt: serverTimestamp(),
@@ -358,7 +417,7 @@ function ChantManager() {
   };
 
   const stop = async () => {
-    await setDoc(doc(db, "config", "activeChant"), {
+    await setDoc(doc(db, "config", `activeChant_${coordinatorId}`), {
       text: "",
       active: false,
       updatedAt: serverTimestamp(),
@@ -450,7 +509,7 @@ function ChantManager() {
 }
 
 /* ─── Menu Manager ──────────────────────────────────────────── */
-function MenuManager() {
+function MenuManager({ coordinatorId }) {
   const [stalls, setStalls] = useState([]);
   const [newStallName, setNewStallName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -461,13 +520,14 @@ function MenuManager() {
   const fileRef = useRef({});
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "menus"), (snap) => {
+    const qSelect = query(collection(db, "menus"), where("coordinatorId", "==", coordinatorId));
+    const unsub = onSnapshot(qSelect, (snap) => {
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
       setStalls(data);
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   const addStall = async () => {
     if (!newStallName.trim()) return;
@@ -477,6 +537,7 @@ function MenuManager() {
         name: newStallName.trim(),
         items: [],
         imageUrl: null,
+        coordinatorId,
         createdAt: serverTimestamp(),
       });
       setNewStallName("");
@@ -676,7 +737,7 @@ function MenuManager() {
 }
 
 /* ─── Event Code Manager ────────────────────────────────────── */
-function EventCodeManager() {
+function EventCodeManager({ coordinatorId }) {
   const [code, setCode] = useState("");
   const [eventName, setEventName] = useState("");
   const [active, setActive] = useState(false);
@@ -685,7 +746,7 @@ function EventCodeManager() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "eventCode"), (snap) => {
+    const unsub = onSnapshot(doc(db, "config", `eventCode_${coordinatorId}`), (snap) => {
       if (snap.exists()) {
         setCode(snap.data().code || "");
         setEventName(snap.data().eventName || "");
@@ -693,7 +754,7 @@ function EventCodeManager() {
       }
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   const generateCode = () => {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -709,10 +770,12 @@ function EventCodeManager() {
     if (!code.trim()) return;
     setLoading(true);
     try {
-      await setDoc(doc(db, "config", "eventCode"), {
+      await setDoc(doc(db, "config", `eventCode_${coordinatorId}`), {
         code: code.trim().toUpperCase(),
         eventName: eventName.trim(),
+        coordinatorId,
         active: true,
+        type: "eventCode",
         updatedAt: serverTimestamp(),
       });
       setActive(true);
@@ -727,12 +790,10 @@ function EventCodeManager() {
   };
 
   const toggleActive = async () => {
-    await setDoc(doc(db, "config", "eventCode"), {
-      code,
-      eventName,
+    await setDoc(doc(db, "config", `eventCode_${coordinatorId}`), {
       active: !active,
       updatedAt: serverTimestamp(),
-    });
+    }, { merge: true });
     setActive((p) => !p);
   };
 
@@ -874,14 +935,65 @@ function EventCodeManager() {
 }
 
 /* ─── Feedback Manager ──────────────────────────────────────── */
-function FeedbackManager() {
+function FeedbackManager({ coordinatorId }) {
   const [feedbacks, setFeedbacks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [starFilter, setStarFilter] = useState("all");
 
+  const [insight, setInsight] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [insightError, setInsightError] = useState("");
+
+  const generateAIInsights = async () => {
+    if (feedbacks.length === 0) return;
+
+    setIsAnalyzing(true);
+    setInsightError("");
+    setInsight(null);
+
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      setInsightError("Gemini API Key is missing! Set VITE_GEMINI_API_KEY in your .env file.");
+      setIsAnalyzing(false);
+      return;
+    }
+
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-3.0-flash" });
+
+      // Compile feedback into a prompt
+      const feedbackTexts = feedbacks
+        .filter(f => f.comment && f.comment.trim() !== "")
+        .map(f => `[${f.rating} Stars, Category: ${f.category}]: ${f.comment}`)
+        .join("\n");
+
+      if (!feedbackTexts) {
+        setInsight("Not enough written comments to generate insights.");
+        setIsAnalyzing(false);
+        return;
+      }
+
+      const prompt = `You are an event management expert analyzing feedback from attendees.
+Here is the feedback submitted during the event:
+
+${feedbackTexts}
+
+Please provide a concise, high-level summary of the overall crowd sentiment, highlight what is working well, and point out immediate actionable areas for improvement. Keep it under 4 sentences and format it nicely.`;
+
+      const result = await model.generateContent(prompt);
+      setInsight(result.response.text());
+    } catch (err) {
+      setInsightError(err.message || "Failed to generate insights.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   useEffect(() => {
-    // Listen to all feedbacks
-    const unsub = onSnapshot(collection(db, "feedback"), (snap) => {
+    // Listen to all feedbacks for this coordinator
+    const qFeed = query(collection(db, "feedback"), where("coordinatorId", "==", coordinatorId));
+    const unsub = onSnapshot(qFeed, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Sort by newest first
       data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
@@ -889,7 +1001,7 @@ function FeedbackManager() {
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   const filteredFeedbacks = feedbacks.filter(f => {
     if (starFilter === "all") return true;
@@ -898,32 +1010,63 @@ function FeedbackManager() {
 
   const getStarString = (rating) => {
     let s = "";
-    for(let i=1; i<=5; i++) {
-       s += i <= rating ? "⭐" : "☆";
+    for (let i = 1; i <= 5; i++) {
+      s += i <= rating ? "⭐" : "☆";
     }
     return s;
   };
 
   return (
     <div style={{ maxWidth: 700, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16, flexWrap: "wrap", gap: 16 }}>
         <div>
           <h2 className="section-title" style={{ marginBottom: 4 }}>📝 Event Feedback</h2>
           <p className="section-subtitle" style={{ margin: 0 }}>Review what attendees are saying about the event.</p>
         </div>
-        
-        <div style={{ minWidth: 140 }}>
-          <label className="form-label" style={{ fontSize: "0.8rem", marginBottom: 4 }}>Filter by Stars</label>
-          <select className="form-select" value={starFilter} onChange={(e) => setStarFilter(e.target.value)}>
-            <option value="all">All Ratings</option>
-            <option value="5">5 Stars</option>
-            <option value="4">4 Stars</option>
-            <option value="3">3 Stars</option>
-            <option value="2">2 Stars</option>
-            <option value="1">1 Star</option>
-          </select>
+
+        <div style={{ display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div>
+            <label className="form-label" style={{ fontSize: "0.8rem", marginBottom: 4 }}>Filter by Stars</label>
+            <select className="form-select" value={starFilter} onChange={(e) => setStarFilter(e.target.value)} style={{ minWidth: 140 }}>
+              <option value="all">All Ratings</option>
+              <option value="5">5 Stars</option>
+              <option value="4">4 Stars</option>
+              <option value="3">3 Stars</option>
+              <option value="2">2 Stars</option>
+              <option value="1">1 Star</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={generateAIInsights}
+            disabled={isAnalyzing || loading || feedbacks.length === 0}
+            style={{ background: "linear-gradient(135deg, #1A73E8, #a920ab)", border: "none" }}
+          >
+            {isAnalyzing ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "✨ AI Insights"}
+          </button>
         </div>
       </div>
+
+      {/* AI Insight Box */}
+      {(insight || insightError || isAnalyzing) && (
+        <div className="panel" style={{ marginBottom: 24, padding: "16px 20px", background: "rgba(26, 115, 232, 0.04)", border: "1px solid rgba(26, 115, 232, 0.15)" }}>
+          <h3 style={{ fontSize: "1rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            ✨ Gemini AI Summary
+          </h3>
+          {isAnalyzing ? (
+            <div style={{ fontSize: "0.9rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="spinner" style={{ width: 14, height: 14, borderColor: "#1A73E8 transparent transparent transparent" }} /> Analyzing feedback...
+            </div>
+          ) : insightError ? (
+            <div style={{ fontSize: "0.9rem", color: "#d93025" }}>⚠️ {insightError}</div>
+          ) : (
+            <div style={{ fontSize: "0.95rem", lineHeight: 1.6, color: "var(--text-main)", whiteSpace: "pre-wrap" }}>
+              {insight}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="empty-state">

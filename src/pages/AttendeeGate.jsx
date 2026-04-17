@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { db } from "../firebase";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
 export default function AttendeeGate() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [eventCode, setEventCode] = useState(null);
   const [eventName, setEventName] = useState("");
-  const [codeActive, setCodeActive] = useState(false);
   const navigate = useNavigate();
 
   // Check if already validated this session
@@ -18,42 +16,42 @@ export default function AttendeeGate() {
     if (saved) navigate("/attendee/view", { replace: true });
   }, [navigate]);
 
-  // Listen to the active event code from Firestore
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, "config", "eventCode"), (snap) => {
-      if (snap.exists()) {
-        setEventCode(snap.data().code || null);
-        setEventName(snap.data().eventName || "");
-        setCodeActive(snap.data().active ?? false);
-      } else {
-        setEventCode(null);
-        setCodeActive(false);
-      }
-    });
-    return unsub;
-  }, []);
+  // removed listener for old global eventCode
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    if (!codeActive || !eventCode) {
-      setError("No active event found. Please check with your coordinator.");
-      setLoading(false);
-      return;
-    }
+    const inputCode = input.trim().toUpperCase();
 
-    if (input.trim().toUpperCase() !== eventCode.toUpperCase()) {
-      setError("Invalid event code. Please check with your coordinator.");
-      setLoading(false);
-      return;
-    }
+    try {
+      const q = query(collection(db, "config"), where("code", "==", inputCode));
+      const snap = await getDocs(q);
 
-    // Valid — persist in session so they don't re-enter on refresh
-    sessionStorage.setItem("ss_event_code", eventCode);
-    sessionStorage.setItem("ss_event_name", eventName);
-    navigate("/attendee/view", { replace: true });
+      if (snap.empty) {
+        setError("Invalid event code. Please check with your coordinator.");
+        setLoading(false);
+        return;
+      }
+
+      const data = snap.docs[0].data();
+      if (!data.active) {
+        setError("This event is not active or has concluded.");
+        setLoading(false);
+        return;
+      }
+
+      // Valid — persist in session so they don't re-enter on refresh
+      sessionStorage.setItem("ss_event_code", inputCode);
+      sessionStorage.setItem("ss_event_name", data.eventName || "");
+      sessionStorage.setItem("ss_coordinator_id", data.coordinatorId);
+      navigate("/attendee/view", { replace: true });
+    } catch (err) {
+      console.error(err);
+      setError("Failed to verify code. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (
