@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Landing from "./pages/Landing";
 import CoordinatorLogin from "./pages/CoordinatorLogin";
+import CoordinatorSignup from "./pages/CoordinatorSignup";
 import CoordinatorDashboard from "./pages/CoordinatorDashboard";
 import AttendeeGate from "./pages/AttendeeGate";
 import AttendeeView from "./pages/AttendeeView";
@@ -11,6 +12,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/coordinator/login" element={<CoordinatorLogin />} />
+      <Route path="/coordinator/signup" element={<CoordinatorSignup />} />
       <Route path="/coordinator" element={<CoordinatorDashboard />} />
 
       {/* Attendee code gate */}

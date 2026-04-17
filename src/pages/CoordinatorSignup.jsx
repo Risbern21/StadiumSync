@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
 import { useNavigate, Link } from "react-router-dom";
 
-export default function CoordinatorLogin() {
+export default function CoordinatorSignup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -11,12 +11,12 @@ export default function CoordinatorLogin() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const handleSignup = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await createUserWithEmailAndPassword(auth, email, password);
       navigate("/coordinator");
     } catch (err) {
       setError(friendlyError(err.code));
@@ -25,7 +25,7 @@ export default function CoordinatorLogin() {
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleSignup = async () => {
     setGoogleLoading(true);
     setError("");
     const provider = new GoogleAuthProvider();
@@ -43,13 +43,12 @@ export default function CoordinatorLogin() {
 
   function friendlyError(code) {
     const map = {
-      "auth/invalid-credential": "Invalid email or password.",
-      "auth/user-not-found": "No account found with this email.",
-      "auth/wrong-password": "Incorrect password.",
-      "auth/too-many-requests": "Too many attempts. Please try again later.",
-      "auth/popup-closed-by-user": "Sign-in popup was closed.",
+      "auth/email-already-in-use": "An account already exists with this email.",
+      "auth/invalid-email": "Please enter a valid email address.",
+      "auth/weak-password": "Password should be at least 6 characters.",
+      "auth/popup-closed-by-user": "Sign-up popup was closed.",
     };
-    return map[code] || "Login failed. Please try again.";
+    return map[code] || "Registration failed. Please try again.";
   }
 
   return (
@@ -59,19 +58,19 @@ export default function CoordinatorLogin() {
         <div style={{ textAlign: "center", marginBottom: "28px" }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>🎛️</div>
           <h1 style={{ fontSize: "1.5rem", marginBottom: "6px" }}>
-            Coordinator <span className="gradient-text">Login</span>
+            Coordinator <span className="gradient-text">Sign Up</span>
           </h1>
           <p style={{ fontSize: "0.84rem", color: "var(--text-muted)" }}>
-            Sign in to manage your event
+            Create an account to manage your event
           </p>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           <div className="form-group">
             <label className="form-label">Email</label>
             <input
-              id="coordinator-email"
+              id="coordinator-email-signup"
               type="email"
               className="form-input"
               placeholder="coordinator@stadium.com"
@@ -85,14 +84,14 @@ export default function CoordinatorLogin() {
           <div className="form-group">
             <label className="form-label">Password</label>
             <input
-              id="coordinator-password"
+              id="coordinator-password-signup"
               type="password"
               className="form-input"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              autoComplete="current-password"
+              autoComplete="new-password"
             />
           </div>
 
@@ -103,8 +102,8 @@ export default function CoordinatorLogin() {
             </div>
           )}
 
-          <button id="login-submit" type="submit" className="btn btn-primary btn-lg btn-full" disabled={loading || googleLoading}>
-            {loading ? <span className="spinner" /> : "Sign In"}
+          <button id="signup-submit" type="submit" className="btn btn-primary btn-lg btn-full" disabled={loading || googleLoading}>
+            {loading ? <span className="spinner" /> : "Sign Up"}
           </button>
         </form>
 
@@ -117,7 +116,7 @@ export default function CoordinatorLogin() {
         <button 
           type="button" 
           className="btn btn-secondary btn-lg btn-full" 
-          onClick={handleGoogleLogin} 
+          onClick={handleGoogleSignup} 
           disabled={loading || googleLoading}
           style={{ marginBottom: "16px", display: "flex", gap: "10px", alignItems: "center", justifyContent: "center", backgroundColor: "white", color: "#3c4043", border: "1px solid #dadce0" }}
         >
@@ -133,7 +132,7 @@ export default function CoordinatorLogin() {
         </button>
 
         <p style={{ textAlign: "center", fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "16px" }}>
-          Don't have an account? <Link to="/coordinator/signup" className="gradient-text" style={{ fontWeight: 600, textDecoration: "none" }}>Sign Up</Link>
+          Already have an account? <Link to="/coordinator/login" className="gradient-text" style={{ fontWeight: 600, textDecoration: "none" }}>Sign In</Link>
         </p>
 
         <div className="divider" />
