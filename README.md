@@ -45,7 +45,8 @@ StadiumSync
 │   ├── Map Manager          — Upload map → Storage → URL in Firestore config/venueMap
 │   ├── Exit Guide           — Write to Firestore config/egressMessage → live on attendee screens
 │   ├── Chant Broadcaster    — Write to Firestore config/activeChant → live on attendee screens
-│   └── Menu Manager         — CRUD on Firestore menus/ collection + image uploads
+│   ├── Menu Manager         — CRUD on Firestore menus/ collection + image uploads
+│   └── Feedback Viewer      — Read and filter from Firestore feedback/ collection
 ├── /attendee (Gate)         — Attendee enters event code; validated against Firestore
 │                              Valid code stored in sessionStorage
 └── /attendee/view           — Gated view (redirects to gate if no session code)
@@ -166,7 +167,7 @@ The app is fully mobile-responsive:
 1. A single coordinator account is pre-created in Firebase Auth (no registration flow needed for the event scope).
 2. Attendees do not require authentication — the attendee view is fully public.
 3. Prices in menus are entered as free-text strings (e.g. "₹120" or "$5") to support any currency.
-4. Feedback is write-only for attendees; coordinators can view it in the Firebase Console.
+4. Feedback is actively synced; coordinators can view and filter ratings directly in their dashboard.
 5. Only one active egress message and one active chant exist at a time (last write wins).
 
 ---

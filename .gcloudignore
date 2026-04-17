@@ -1,0 +1,13 @@
+.git
+node_modules/
+dist/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+.vite/
+
+# We DELIBERATELY exclude the following line from this file so that Cloud Build 
+# can read your .env file and bake your public Firebase vars into the final Javascript!
+# !.env
