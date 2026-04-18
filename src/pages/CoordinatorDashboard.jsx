@@ -4,7 +4,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db, storage } from "../firebase";
 import {
   doc, setDoc, collection, addDoc, deleteDoc,
-  onSnapshot, serverTimestamp, getDocs,
+  onSnapshot, serverTimestamp,
   query, where
 } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -960,7 +960,7 @@ function FeedbackManager({ coordinatorId }) {
 
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-3.0-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       // Compile feedback into a prompt
       const feedbackTexts = feedbacks

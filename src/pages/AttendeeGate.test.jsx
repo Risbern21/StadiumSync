@@ -7,14 +7,23 @@ import AttendeeGate from './AttendeeGate';
 vi.mock('firebase/firestore', () => {
   return {
     doc: vi.fn(),
-    onSnapshot: vi.fn((docRef, callback) => {
-      // Setup a fake active event inside the callback
-      callback({
-        exists: () => true,
-        data: () => ({ code: 'WINNER', eventName: 'Championship', active: true })
-      });
-      return vi.fn(); // Mock unsubscribe function
+    collection: vi.fn(),
+    query: vi.fn((coll, wh) => ({ wh })),
+    where: vi.fn((field, op, value) => ({ field, op, value })),
+    getDocs: vi.fn(async (q) => {
+      if (q?.wh?.value === 'WINNER') {
+        return {
+          empty: false,
+          docs: [
+            {
+              data: () => ({ code: 'WINNER', eventName: 'Championship', active: true, coordinatorId: 'mock-coord-1' })
+            }
+          ]
+        };
+      }
+      return { empty: true };
     }),
+    onSnapshot: vi.fn(),
   };
 });
 
@@ -54,7 +63,7 @@ describe('AttendeeGate Component', () => {
     expect(button).toBeDisabled();
   });
 
-  it('displays an error for an invalid event code', () => {
+  it('displays an error for an invalid event code', async () => {
     render(
       <MemoryRouter>
         <AttendeeGate />
@@ -66,10 +75,10 @@ describe('AttendeeGate Component', () => {
     fireEvent.change(input, { target: { value: 'LOSER12' } });
     fireEvent.click(button);
 
-    expect(screen.getByText(/Invalid event code/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Invalid event code/i)).toBeInTheDocument();
   });
 
-  it('successfully logs the attendee in and navigates when correct code is submitted', () => {
+  it('successfully logs the attendee in and navigates when correct code is submitted', async () => {
     render(
       <MemoryRouter initialEntries={['/attendee']}>
         <Routes>
@@ -86,7 +95,7 @@ describe('AttendeeGate Component', () => {
     fireEvent.click(button);
 
     // Verify it navigated properly
-    expect(screen.getByTestId('attendee-dashboard')).toBeInTheDocument();
+    expect(await screen.findByTestId('attendee-dashboard')).toBeInTheDocument();
     
     // Verify standard persistence acts correctly 
     expect(sessionStorage.getItem('ss_event_code')).toBe('WINNER');

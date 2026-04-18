@@ -91,7 +91,7 @@ function MapSection({ coordinatorId }) {
 
   useEffect(() => {
     if (!coordinatorId) {
-      setLoading(false);
+      setTimeout(() => setLoading(false), 0);
       return;
     }
     const unsub = onSnapshot(doc(db, "config", `venueMap_${coordinatorId}`), (snap) => {
@@ -108,7 +108,7 @@ function MapSection({ coordinatorId }) {
       setLoading(false);
     });
     return unsub;
-  }, [currentSessionEventCode]);
+  }, [currentSessionEventCode, coordinatorId]);
 
   return (
     <div style={{ maxWidth: 700, margin: "0 auto" }}>
@@ -143,7 +143,7 @@ function EgressSection({ coordinatorId }) {
 
   useEffect(() => {
     if (!coordinatorId) {
-      setLoading(false);
+      setTimeout(() => setLoading(false), 0);
       return;
     }
     const unsub = onSnapshot(doc(db, "config", `egressMessage_${coordinatorId}`), (snap) => {
@@ -151,7 +151,7 @@ function EgressSection({ coordinatorId }) {
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
@@ -225,7 +225,7 @@ function ChantsSection({ coordinatorId }) {
 
   useEffect(() => {
     if (!coordinatorId) {
-      setLoading(false);
+      setTimeout(() => setLoading(false), 0);
       return;
     }
     const unsub = onSnapshot(doc(db, "config", `activeChant_${coordinatorId}`), (snap) => {
@@ -235,7 +235,7 @@ function ChantsSection({ coordinatorId }) {
       if (!d.active) setJoined(false);
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
@@ -301,7 +301,7 @@ function FoodSection({ coordinatorId }) {
 
   useEffect(() => {
     if (!coordinatorId) {
-      setLoading(false);
+      setTimeout(() => setLoading(false), 0);
       return;
     }
     const qMenu = query(collection(db, "menus"), where("coordinatorId", "==", coordinatorId));
@@ -312,7 +312,7 @@ function FoodSection({ coordinatorId }) {
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [coordinatorId]);
 
   return (
     <div style={{ maxWidth: 700, margin: "0 auto" }}>

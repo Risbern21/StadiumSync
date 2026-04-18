@@ -7,7 +7,6 @@ export default function AttendeeGate() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [eventName, setEventName] = useState("");
   const navigate = useNavigate();
 
   // Check if already validated this session
